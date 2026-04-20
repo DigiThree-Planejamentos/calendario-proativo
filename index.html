@@ -959,6 +959,16 @@ function updateStats(){
 // ── Build Month Nav ──
 function buildMonthNav(){
   const nav=document.getElementById('monthNav');
+  if(!nav) return;
+  const existing = nav.querySelectorAll('.month-btn');
+  if(existing.length===MONTHS_CONFIG.length){
+    existing.forEach((btn,i)=>{
+      btn.onclick=()=>scrollToMonth(i);
+      btn.id='mnav'+i;
+      btn.textContent=MONTH_NAMES[MONTHS_CONFIG[i].month-1].substring(0,3);
+    });
+    return;
+  }
   nav.innerHTML='';
   MONTHS_CONFIG.forEach((mc,i)=>{
     const btn=document.createElement('button');
@@ -1348,207 +1358,110 @@ function saveDatas(){
 document.getElementById('datasMonthSel').addEventListener('change', renderDatasList);
 document.getElementById('datasOverlay').addEventListener('click', e=>{if(e.target===e.currentTarget)closeDatasModal();});
 
-
-// ── GitHub Persistence ──
+// ── Export / GitHub Persistência ──
 const GITHUB_CONFIG = {
-  owner: "DigiThree-Planejamentos",
-  repo: "calendario-proativo",
+  owner: "COLOQUE_AQUI",
+  repo: "COLOQUE_AQUI",
   path: "index.html",
   branch: "main"
 };
 
-function syncStateFromDom(){
-  const clientEl = document.getElementById('hdrClient');
-  const yearEl = document.getElementById('hdrYear');
-  const subEl = document.getElementById('hdrSub');
-  if (clientEl) clientEl.innerText = clientEl.innerText;
-  if (yearEl) yearEl.innerText = yearEl.innerText;
-  if (subEl) subEl.innerText = subEl.innerText;
+function getGithubToken(forceReset=false){
+  if(forceReset){
+    localStorage.removeItem('github_token');
+    localStorage.removeItem('github_repo_config');
+  }
+  let token = localStorage.getItem('github_token');
+  if(!token){
+    token = prompt('Cole seu token do GitHub com permissão de escrita no repositório:');
+    if(!token) throw new Error('Token não informado.');
+    localStorage.setItem('github_token', token.trim());
+  }
+  return token.trim();
+}
 
-  document.querySelectorAll('.month-notes[data-month]').forEach(el => {
-    const m = parseInt(el.getAttribute('data-month'), 10);
-    const idx = MONTHS_CONFIG.findIndex(cfg => cfg.month === m);
-    if (idx >= 0) MONTHS_CONFIG[idx].notes = el.innerHTML;
+function resetGithubToken(){
+  localStorage.removeItem('github_token');
+  localStorage.removeItem('github_repo_config');
+  showToast('🔐 Token limpo. Ele será pedido novamente ao salvar.');
+}
+
+function collectCalendarState(){
+  const header = {
+    client: (document.getElementById('hdrClient')?.innerText || '').trim(),
+    year: (document.getElementById('hdrYear')?.innerText || '').trim(),
+    sub: (document.getElementById('hdrSub')?.innerText || '').trim()
+  };
+
+  document.querySelectorAll('.month-notes[data-month]').forEach(el=>{
+    const month = parseInt(el.dataset.month,10);
+    const idx = MONTHS_CONFIG.findIndex(m=>m.month===month);
+    if(idx>=0) MONTHS_CONFIG[idx].notes = el.innerHTML;
   });
 
-  document.querySelectorAll('.month-block').forEach(block => {
-    const monthNotes = block.querySelector('.month-notes[data-month]');
-    if (!monthNotes) return;
-    const m = parseInt(monthNotes.getAttribute('data-month'), 10);
-    const inputs = block.querySelectorAll('.plan-input');
-    if (!PLAN_DATA[m]) PLAN_DATA[m] = {};
+  document.querySelectorAll('.month-block').forEach(block=>{
+    const id = block.id || '';
+    const mIdx = parseInt(id.replace('month-',''),10);
+    if(Number.isNaN(mIdx) || !MONTHS_CONFIG[mIdx]) return;
+    const textareas = block.querySelectorAll('.plan-panel textarea');
     const keys = ['objetivos','investimento','trafego','influenciadores','persona','observacoes'];
-    inputs.forEach((input, idx) => {
-      if (keys[idx]) PLAN_DATA[m][keys[idx]] = input.value;
+    const plan = getPlan(MONTHS_CONFIG[mIdx].month);
+    textareas.forEach((ta,idx)=>{
+      const key = keys[idx];
+      if(key) plan[key] = ta.value;
     });
   });
-}
 
-function getGithubToken() {
-  let token = localStorage.getItem('github_token');
-  if (!token) {
-    token = prompt('Cole seu token do GitHub com permissão de escrita no repositório:');
-    if (!token) throw new Error('Token não informado.');
-    localStorage.setItem('github_token', token.trim());
-    token = token.trim();
-  }
-  return token;
-}
-
-function resetGithubToken() {
-  localStorage.removeItem('github_token');
-  localStorage.removeItem('github_owner');
-  localStorage.removeItem('github_repo');
-  localStorage.removeItem('github_path');
-  localStorage.removeItem('github_branch');
-  showToast('🔐 Token removido. Será solicitado novamente.');
-}
-
-function collectCalendarState() {
-  syncStateFromDom();
   return {
-    header: {
-      client: document.getElementById('hdrClient')?.innerText || '',
-      year: document.getElementById('hdrYear')?.innerText || '',
-      sub: document.getElementById('hdrSub')?.innerText || ''
-    },
-    posts: JSON.parse(JSON.stringify(POSTS || [])),
-    planData: JSON.parse(JSON.stringify(PLAN_DATA || {})),
-    monthsConfig: JSON.parse(JSON.stringify(MONTHS_CONFIG || []))
+    header,
+    monthsConfig: JSON.parse(JSON.stringify(MONTHS_CONFIG)),
+    posts: JSON.parse(JSON.stringify(POSTS)),
+    planData: JSON.parse(JSON.stringify(PLAN_DATA))
   };
 }
 
-function applyCalendarState(state) {
-  if (!state || typeof state !== 'object') return;
+function applyCalendarState(state){
+  if(!state || typeof state !== 'object') return;
 
-  if (state.header) {
-    const clientEl = document.getElementById('hdrClient');
-    const yearEl = document.getElementById('hdrYear');
-    const subEl = document.getElementById('hdrSub');
-    if (clientEl) clientEl.innerText = state.header.client || clientEl.innerText;
-    if (yearEl) yearEl.innerText = state.header.year || yearEl.innerText;
-    if (subEl) subEl.innerText = state.header.sub || subEl.innerText;
+  if(state.header){
+    if(document.getElementById('hdrClient')) document.getElementById('hdrClient').innerText = state.header.client || '';
+    if(document.getElementById('hdrYear')) document.getElementById('hdrYear').innerText = state.header.year || '';
+    if(document.getElementById('hdrSub')) document.getElementById('hdrSub').innerText = state.header.sub || '';
   }
 
-  if (Array.isArray(state.posts)) {
-    POSTS = JSON.parse(JSON.stringify(state.posts));
+  if(Array.isArray(state.monthsConfig)){
+    MONTHS_CONFIG.splice(0, MONTHS_CONFIG.length, ...state.monthsConfig);
   }
-  if (state.planData && typeof state.planData === 'object') {
-    PLAN_DATA = JSON.parse(JSON.stringify(state.planData));
+
+  if(Array.isArray(state.posts)){
+    POSTS.splice(0, POSTS.length, ...state.posts);
   }
-  if (Array.isArray(state.monthsConfig) && state.monthsConfig.length === MONTHS_CONFIG.length) {
-    state.monthsConfig.forEach((saved, idx) => {
-      MONTHS_CONFIG[idx] = saved;
-    });
+
+  if(state.planData && typeof state.planData === 'object'){
+    Object.keys(PLAN_DATA).forEach(k=>delete PLAN_DATA[k]);
+    Object.assign(PLAN_DATA, state.planData);
   }
 }
 
-function buildPersistentHtml(state) {
-  syncStateFromDom();
-  const state = collectCalendarState();
-  let src = buildPersistentHtml(state);
-
-  src = src.replace(/<script id="persisted-state">[\s\S]*?<\/script>/g, '');
-  src = src.replace(/<input type="file" accept="image\/\*" multiple="" style="display: none;?">/g, '');
-
-  const stateScript = `\n<script id="persisted-state">\nwindow.__PERSISTED_CALENDAR_STATE__ = ${JSON.stringify(state)};\n<\/script>\n`;
-  src = src.replace('</body>', stateScript + '\n</body>');
+function buildPersistentHtml(state){
+  let src = document.documentElement.outerHTML;
+  src = src.replace(/<script id="persisted-state">[\s\S]*?<\/script>/, '');
+  src = src.replace(/<input type="file" accept="image\/\*" multiple="" style="display: none;">\s*$/m, '');
+  const persistedBlock = `<script id="persisted-state">\nwindow.__PERSISTED_CALENDAR_STATE__ = ${JSON.stringify(state)};\n<\/script>\n`;
+  src = src.replace('</body>', `${persistedBlock}</body>`);
   return src;
 }
 
-async function fetchGithubFileSha(url, token) {
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `token ${token}`,
-      Accept: 'application/vnd.github+json'
-    }
-  });
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(data?.message || `Falha ao ler ${GITHUB_CONFIG.path} no GitHub.`);
-  }
-  return data.sha;
-}
-
-async function salvarAlteracoes() {
-  try {
-    syncStateFromDom();
-    const token = getGithubToken();
-    const { owner, repo, path, branch } = GITHUB_CONFIG;
-    const url = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
-
-    if (!owner || owner === 'COLOQUE_AQUI' || !repo || repo === 'COLOQUE_AQUI') {
-      throw new Error('Preencha owner e repo no GITHUB_CONFIG antes de salvar.');
-    }
-
-    const state = collectCalendarState();
-    const html = buildPersistentHtml(state);
-    const content = btoa(unescape(encodeURIComponent(html)));
-
-    let sha = await fetchGithubFileSha(url, token);
-
-    let response = await fetch(url, {
-      method: 'PUT',
-      headers: {
-        Authorization: `token ${token}`,
-        Accept: 'application/vnd.github+json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        message: `Atualiza calendário editorial ${new Date().toISOString()}`,
-        content,
-        sha,
-        branch
-      })
-    });
-
-    if (response.status === 409) {
-      sha = await fetchGithubFileSha(url, token);
-      response = await fetch(url, {
-        method: 'PUT',
-        headers: {
-          Authorization: `token ${token}`,
-          Accept: 'application/vnd.github+json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          message: `Atualiza calendário editorial ${new Date().toISOString()}`,
-          content,
-          sha,
-          branch
-        })
-      });
-    }
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result?.message || 'Não foi possível salvar no GitHub.');
-    }
-
-    showToast('💾 Alterações salvas no GitHub com sucesso!');
-  } catch (error) {
-    console.error(error);
-    alert(`Não foi possível salvar no GitHub. ${error.message}`);
-  }
-}
-
-// ── Export ──
 function exportHTML(){
-  const client = (document.getElementById('hdrClient')?.innerText || '').trim();
-  const year = (document.getElementById('hdrYear')?.innerText || '').trim();
-  const sub = (document.getElementById('hdrSub')?.innerText || '').trim();
-
   const state = collectCalendarState();
-  let src = buildPersistentHtml(state);
-
-  src = src.replace(/(<span contenteditable="true" id="hdrClient"[^>]*>)([\s\S]*?)(<\/span>)/, `$1${client}$3`);
-  src = src.replace(/(<em contenteditable="true" id="hdrYear"[^>]*>)([\s\S]*?)(<\/em>)/, `$1${year}$3`);
-  src = src.replace(/(<span[^>]*id="hdrSub"[^>]*>)([\s\S]*?)(<\/span>)/, `$1${sub}$3`);
+  const src = buildPersistentHtml(state);
+  const client = (state.header?.client || 'editavel');
+  const year = (state.header?.year || '2026');
 
   const blob = new Blob([src], { type: 'text/html;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `calendario-editorial-${client.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'editavel'}-${year || '2026'}.html`;
+  a.download = `calendario-editorial-${client.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'editavel'}-${year}.html`;
   document.body.appendChild(a);
   a.click();
   setTimeout(() => {
@@ -1562,12 +1475,85 @@ function showToast(msg){
   t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2800);
 }
 
+async function githubRequest(url, options={}){
+  const response = await fetch(url, options);
+  const text = await response.text();
+  let data = null;
+  try{ data = text ? JSON.parse(text) : null; }catch(_){ data = text; }
+  if(!response.ok){
+    const message = (data && data.message) ? data.message : `Erro HTTP ${response.status}`;
+    throw new Error(message);
+  }
+  return data;
+}
+
+async function salvarAlteracoes(){
+  try{
+    const token = getGithubToken();
+    const { owner, repo, path, branch } = GITHUB_CONFIG;
+
+    if(!owner || owner === 'COLOQUE_AQUI') throw new Error('Preencha o owner no GITHUB_CONFIG.');
+    if(!repo || repo === 'COLOQUE_AQUI') throw new Error('Preencha o repo no GITHUB_CONFIG.');
+    if(!path || path.includes('index.html/index.html')) throw new Error('O path do GitHub está inválido.');
+    if(path.startsWith('/')) throw new Error('O path deve ser "index.html" sem barra inicial.');
+
+    const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+
+    const readFile = async () => githubRequest(`${apiUrl}?ref=${encodeURIComponent(branch)}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json'
+      }
+    });
+
+    const state = collectCalendarState();
+    const newHtml = buildPersistentHtml(state);
+    const content = btoa(unescape(encodeURIComponent(newHtml)));
+
+    let fileData = await readFile();
+
+    const writeFile = async (sha) => githubRequest(apiUrl, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        message: 'Atualiza calendário editorial',
+        content,
+        sha,
+        branch
+      })
+    });
+
+    try{
+      await writeFile(fileData.sha);
+    }catch(err){
+      const msg = String(err.message || '');
+      if(msg.includes('does not match') || msg.includes('sha') || msg.includes('409') || msg.includes('Conflict')){
+        fileData = await readFile();
+        await writeFile(fileData.sha);
+      }else{
+        throw err;
+      }
+    }
+
+    showToast('💾 Alterações salvas no GitHub!');
+  }catch(err){
+    console.error(err);
+    alert(`Não foi possível salvar no GitHub. ${err.message}`);
+  }
+}
+
 document.getElementById('modalOverlay').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal();});
 
 // ── Init ──
-if (window.__PERSISTED_CALENDAR_STATE__) {
+if(window.__PERSISTED_CALENDAR_STATE__){
   applyCalendarState(window.__PERSISTED_CALENDAR_STATE__);
 }
+
 buildMonthNav();
 renderAll();
 
@@ -1582,4 +1568,7 @@ const observer = new IntersectionObserver((entries)=>{
   });
 },{threshold:0.15});
 document.querySelectorAll('.month-block').forEach(el=>observer.observe(el));
-</script></body></html>
+</script>
+
+
+</body></html>
